@@ -1,0 +1,110 @@
+---
+title: "CaliTestScoreAnalysis"
+author: "Duc-Anh Nguyen"
+date: "2025-02-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+The covariates that we are interested in:
++ county: county of school (42counties).
+
++ lunch: percent qualifying for reduced-price lunch, is a continuous variable ranging from 0 to 100. A higher value of lunch means more students in the school come from low-income families. It serves as a proxy for socioeconomic status (SES) in *education research*.
+
++ income: the median household income in the school district’s area. It serves as an indicator of socioeconomic status (SES) at the *community level*. Higher income levels often correlate with better educational resources, parental involvement, and overall school performance.
+
++ expenditure: expenditure per student. Higher values indicate that the school district spends more per student on education, resources, and infrastructure.
+
++ read: average reading score(scale:0-1000).
+
++ math: average math score per school(scale:0-1000).
+
++ performance: average score of math and reading per school (scale:0-1000).
+```{r }
+library(AER)
+library(tidyverse)
+library(lme4)
+data("CASchools")
+CASchools |> colnames()
+data <-
+  CASchools[ ,c("county",
+              "lunch",
+              "expenditure",
+              "income",
+              "read",
+              "math")]
+data$performance <- (data$math + data$read)/2
+data |> head()
+dim(data)
+skimr::skim(data)
+length(data$county) == length(unique(data$county))
+table(data$county)
+ggplot(aes(county), data = data) + geom_histogram(stat="count")
+
+data |> colnames()
+
+
+ggplot(aes(lunch, performance), data = data) + geom_point()
+ggplot(aes(county, performance), data = data) + geom_point()
+ggplot(aes(expenditure, performance), data = data) + geom_point()
+ggplot(aes(income, performance), data = data) + geom_point()
+```
+From the sample it seems that lunch has a negative correlation with the performance, meanwhile higher incomes tend to correlate with higher perfomance results
+As results from same state might be somehow correlated, we fit a mixed model. 
+
+```{r }
+ri_model <- lmer(performance~lunch + expenditure + income + (1|county), data = data)
+ri_model |> summary()
+
+
+variances <- as.data.frame(VarCorr(ri_model))[,c(1,ncol(as.data.frame(VarCorr(ri_model))))]
+
+(ICC <- (variances$sdcor[1]^2)/((variances$sdcor[1]^2)+ variances$sdcor[2]^2))
+
+```
+the marginal correlation between average perfomance scores of schools in the same county is around 22%
+
+From the plot the relationship of the perfomance scores and incomes seems monotonic but non linear, let us fit splines to the model   
+```{r }
+library(mgcv)
+gam_model <-
+  gam(performance ~ s(income, bs = "ps", m = c(3, 2)) + lunch + expenditure, data = data)
+gam_model |> summary()
+
+plot(gam_model)
+```
+
+Now we want to model the joint distribution of the two average scores math and read at schools. We will use copula for this task.
+```{r }
+
+library(VineCopula)
+library(rvinecopulib)
+
+u_cas = cbind.data.frame(
+  math = pnorm(data$math, mean = mean(data$math), sd = sd(data$math)),
+  read = pnorm(data$read, mean = mean(data$read), sd = sd(data$read))
+)
+
+u_cas |> head()
+
+cop_cas = bicop(data = u_cas,
+                family_set = "onepar",
+                selcrit = "bic")
+
+summary(cop_cas)
+plot(cop_cas)
+
+```
+
+
+
+```{r }
+
+
+
+```
+
